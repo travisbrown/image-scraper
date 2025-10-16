@@ -1,0 +1,16 @@
+[package]
+name = "image-scraper-cli"
+authors = { workspace = true }
+repository = { workspace = true }
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+chrono = { workspace = true }
+cli-helpers = { workspace = true }
+csv = { workspace = true }
+image-scraper = { path = "../core/" }
+reqwest = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
