@@ -1,0 +1,19 @@
+[package]
+name = "image-scraper"
+authors = { workspace = true }
+repository = { workspace = true }
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+chrono = { workspace = true }
+hex = { workspace = true }
+imghdr = { workspace = true }
+md5 = { workspace = true }
+reqwest = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
