@@ -2,4 +2,5 @@
 #![allow(clippy::missing_errors_doc)]
 #![forbid(unsafe_code)]
 pub mod client;
+pub mod image_type;
 pub mod store;

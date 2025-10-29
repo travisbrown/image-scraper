@@ -1,9 +1,12 @@
 use cli_helpers::prelude::*;
 use image_scraper::{
     client::Client,
-    store::{Action, Store},
+    store::{Action, PrefixPartLengths, Store},
 };
-use std::path::PathBuf;
+use image_scraper_index::{Entry, db::Database};
+use std::{collections::BTreeMap, path::PathBuf};
+
+mod logs;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -11,7 +14,11 @@ async fn main() -> Result<(), Error> {
     opts.verbose.init_logging()?;
 
     match opts.command {
-        Command::DownloadAll { store, prefix } => {
+        Command::DownloadAll {
+            store,
+            prefix,
+            delay_ms,
+        } => {
             let inferred_prefix_part_length = Store::infer_prefix_part_lengths(&store)?;
 
             let prefix_part_lengths = check_prefix_part_lengths(
@@ -30,17 +37,13 @@ async fn main() -> Result<(), Error> {
                 let line = line?;
 
                 match client.download(&line).await {
-                    Ok(Ok(action)) => {
+                    Ok(Ok((_, action))) => {
                         match action {
                             Action::Added { entry, image_type } => {
                                 writer.write_record([
                                     "A",
                                     &format!("{:x?}", entry.digest),
-                                    &image_type
-                                        .map(|image_type| {
-                                            format!("{:?}", image_type).to_ascii_lowercase()
-                                        })
-                                        .unwrap_or_default(),
+                                    &image_type.to_string(),
                                     &line,
                                 ])?;
                             }
@@ -66,6 +69,136 @@ async fn main() -> Result<(), Error> {
                         Err(error)
                     }
                 }?;
+
+                if let Some(delay_ms) = delay_ms {
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                }
+            }
+        }
+        Command::List {
+            store,
+            prefix,
+            validate,
+        } => {
+            let inferred_prefix_part_length = Store::infer_prefix_part_lengths(&store)?;
+
+            let prefix_part_lengths = check_prefix_part_lengths(
+                inferred_prefix_part_length,
+                prefix.map(|prefix_part_lengths| prefix_part_lengths.0),
+            )?;
+
+            let store = Store::new(&store).with_prefix_part_lengths(prefix_part_lengths)?;
+
+            if validate {
+                for entry in store.entries() {
+                    let entry = entry?;
+
+                    println!("{}", entry.path.as_os_str().to_string_lossy());
+                }
+            } else {
+                for entry in store.entries().validate_fail_fast() {
+                    let entry = entry?;
+
+                    println!("{}", entry.path.as_os_str().to_string_lossy());
+                }
+            }
+        }
+        Command::IndexImport { index } => {
+            let index = Database::open(&index)?;
+
+            let mut reader = csv::ReaderBuilder::new()
+                .has_headers(false)
+                .from_reader(std::io::stdin());
+
+            let mut count = 0;
+            let mut image_type_map = BTreeMap::new();
+            let mut found_leftovers = vec![];
+
+            for result in reader.deserialize::<logs::DownloadLogEntry>() {
+                let log_entry = result?;
+
+                match log_entry.status {
+                    logs::DownloadStatus::Added => {
+                        if let Some(image_type) = log_entry.image_type.value() {
+                            image_type_map.insert(log_entry.digest, image_type);
+
+                            index.add(
+                                &log_entry.url,
+                                Entry {
+                                    timestamp: log_entry.timestamp,
+                                    digest: md5::Digest(log_entry.digest),
+                                    image_type,
+                                },
+                            )?;
+
+                            count += 1;
+                        }
+                    }
+                    logs::DownloadStatus::Found => match image_type_map.get(&log_entry.digest) {
+                        Some(image_type) => {
+                            index.add(
+                                &log_entry.url,
+                                Entry {
+                                    timestamp: log_entry.timestamp,
+                                    digest: md5::Digest(log_entry.digest),
+                                    image_type: *image_type,
+                                },
+                            )?;
+
+                            count += 1;
+                        }
+                        None => {
+                            found_leftovers.push(log_entry);
+                        }
+                    },
+                }
+            }
+
+            let mut final_leftovers = vec![];
+
+            for log_entry in found_leftovers {
+                match image_type_map.get(&log_entry.digest) {
+                    Some(image_type) => {
+                        index.add(
+                            &log_entry.url,
+                            Entry {
+                                timestamp: log_entry.timestamp,
+                                digest: md5::Digest(log_entry.digest),
+                                image_type: *image_type,
+                            },
+                        )?;
+
+                        count += 1;
+                    }
+                    None => {
+                        final_leftovers.push(log_entry);
+                    }
+                }
+            }
+
+            log::info!("Added {} entries", count);
+            log::warn!("{} leftover found entries", final_leftovers.len())
+        }
+        Command::IndexDump { index } => {
+            let index = Database::open(&index)?;
+
+            for result in index.iter() {
+                let (url, result) = result?;
+
+                match result {
+                    Ok(entry) => {
+                        println!(
+                            "S,{},{},{},{:x}",
+                            url,
+                            entry.timestamp.timestamp(),
+                            image_scraper::image_type::ImageType::from(entry.image_type),
+                            entry.digest
+                        );
+                    }
+                    Err(timestamp) => {
+                        println!("E,{},{},,", url, timestamp.timestamp());
+                    }
+                }
             }
         }
     }
@@ -87,6 +220,10 @@ pub enum Error {
     Store(#[from] image_scraper::store::Error),
     #[error("Store initialization error")]
     StoreInitialization(#[from] image_scraper::store::InitializationError),
+    #[error("Store iteration error")]
+    StoreIteration(#[from] image_scraper::store::IterationError),
+    #[error("Index database error")]
+    IndexDatabase(#[from] image_scraper_index::db::Error),
     #[error("Missing prefix part lengths")]
     MissingPrefixPartLengths,
     #[error("Prefix part lengths mismatch")]
@@ -113,6 +250,25 @@ enum Command {
         store: PathBuf,
         #[clap(long)]
         prefix: Option<PrefixPartLengths>,
+        #[clap(long)]
+        delay_ms: Option<u64>,
+    },
+    /// List the contents of an image store, optionally validating
+    List {
+        #[clap(long)]
+        store: PathBuf,
+        #[clap(long)]
+        prefix: Option<PrefixPartLengths>,
+        #[clap(long)]
+        validate: bool,
+    },
+    IndexImport {
+        #[clap(long)]
+        index: PathBuf,
+    },
+    IndexDump {
+        #[clap(long)]
+        index: PathBuf,
     },
 }
 
@@ -131,20 +287,5 @@ fn check_prefix_part_lengths(
         (Some(inferred), None) => Ok(inferred),
         (None, Some(provided)) => Ok(provided),
         (None, None) => Err(Error::MissingPrefixPartLengths),
-    }
-}
-
-#[derive(Clone, Debug)]
-struct PrefixPartLengths(Vec<usize>);
-
-impl std::str::FromStr for PrefixPartLengths {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.split('/')
-            .map(|prefix_part_length| prefix_part_length.parse())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| s.to_string())
-            .map(PrefixPartLengths)
     }
 }

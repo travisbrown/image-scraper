@@ -11,6 +11,10 @@ chrono = { workspace = true }
 cli-helpers = { workspace = true }
 csv = { workspace = true }
 image-scraper = { path = "../core/" }
+image-scraper-index = { path = "../index/" }
+md5 = { workspace = true }
 reqwest = { workspace = true }
+serde = { workspace = true }
+serde-hex = "0.1"
 thiserror = { workspace = true }
 tokio = { workspace = true }

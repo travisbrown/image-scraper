@@ -23,7 +23,10 @@ impl Client {
         }
     }
 
-    pub async fn download(&self, url: &str) -> Result<Result<Action, reqwest::StatusCode>, Error> {
+    pub async fn download(
+        &self,
+        url: &str,
+    ) -> Result<Result<(bytes::Bytes, Action), http::StatusCode>, Error> {
         let response = self.underlying.get(url).send().await?;
         let status_code = response.status();
 
@@ -31,7 +34,7 @@ impl Client {
             let bytes = response.bytes().await?;
             let action = self.store.save(&bytes)?;
 
-            Ok(Ok(action))
+            Ok(Ok((bytes, action)))
         } else {
             Ok(Err(status_code))
         }

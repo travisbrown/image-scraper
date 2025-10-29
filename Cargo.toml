@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "cli"]
+members = ["core", "cli", "index", "service"]
 
 [workspace.package]
 authors = ["Travis Brown <travisrobertbrown@gmail.com>"]
@@ -12,13 +12,27 @@ license = "GPL-3.0-only"
 version = "0.1.0"
 
 [workspace.dependencies]
-chrono = "0.4"
+bincode = "2"
+bytes = "1"
+chrono = { version = "0.4", features = ["serde"] }
 cli-helpers = "0.1"
 csv = "1"
+futures = "0.3"
 hex = "0.4"
+http = "1"
 imghdr = "0.7"
+log = "0.4"
 md5 = "0.8"
+mime = "0.3"
 reqwest = "0.12"
+serde = { version = "1", features = ["derive"] }
 tempfile = "3"
 thiserror = "2"
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = [
+    "fs",
+    "macros",
+    "rt-multi-thread",
+    "signal",
+    "sync",
+] }
+tokio-util = { version = "0.7", features = ["io"] }
