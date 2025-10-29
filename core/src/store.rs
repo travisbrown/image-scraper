@@ -1,3 +1,4 @@
+use crate::image_type::ImageType;
 use hex::FromHex;
 use imghdr::Type;
 use md5::Digest;
@@ -58,6 +59,21 @@ impl Entry {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct PrefixPartLengths(pub Vec<usize>);
+
+impl std::str::FromStr for PrefixPartLengths {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.split('/')
+            .map(str::parse)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| s.to_string())
+            .map(PrefixPartLengths)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ValidationResult {
     Valid { entry: Entry },
@@ -78,13 +94,8 @@ impl ValidationResult {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Action {
-    Added {
-        entry: Entry,
-        image_type: Option<Type>,
-    },
-    Found {
-        entry: Entry,
-    },
+    Added { entry: Entry, image_type: ImageType },
+    Found { entry: Entry },
 }
 
 impl Action {
@@ -103,7 +114,7 @@ impl Action {
     #[must_use]
     pub const fn image_type(&self) -> Option<Type> {
         match self {
-            Self::Added { image_type, .. } => *image_type,
+            Self::Added { image_type, .. } => image_type.value(),
             Self::Found { .. } => None,
         }
     }
@@ -224,12 +235,13 @@ impl Store {
 
             Ok(Action::Added {
                 entry: Entry { path, digest },
-                image_type,
+                image_type: ImageType::new(image_type),
             })
         }
     }
 
-    fn path(&self, digest: Digest) -> PathBuf {
+    #[must_use]
+    pub fn path(&self, digest: Digest) -> PathBuf {
         let digest_string = format!("{digest:x}");
         let mut digest_remaining = digest_string.as_str();
         let mut path = self.base.clone();

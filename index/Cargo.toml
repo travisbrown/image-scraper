@@ -1,5 +1,5 @@
 [package]
-name = "image-scraper"
+name = "image-scraper-index"
 authors = { workspace = true }
 repository = { workspace = true }
 version = { workspace = true }
@@ -8,16 +8,14 @@ license = { workspace = true }
 
 [dependencies]
 bincode = { workspace = true }
-bytes = { workspace = true }
+chrono = { workspace = true }
 hex = { workspace = true }
-http = { workspace = true }
+image-scraper = { path = "../core/" }
 imghdr = { workspace = true }
 md5 = { workspace = true }
-mime = { workspace = true }
 reqwest = { workspace = true }
-serde = { workspace = true }
+rocksdb = { version = "0.24", features = ["zstd"] }
 thiserror = { workspace = true }
-tokio = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
