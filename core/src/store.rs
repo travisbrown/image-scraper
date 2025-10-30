@@ -93,30 +93,16 @@ impl ValidationResult {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Action {
-    Added { entry: Entry, image_type: ImageType },
-    Found { entry: Entry },
+pub struct Action {
+    pub entry: Entry,
+    pub image_type: ImageType,
+    pub added: bool,
 }
 
 impl Action {
     #[must_use]
-    pub const fn is_added(&self) -> bool {
-        matches!(self, Self::Added { .. })
-    }
-
-    #[must_use]
-    pub const fn entry(&self) -> &Entry {
-        match self {
-            Self::Added { entry, .. } | Self::Found { entry } => entry,
-        }
-    }
-
-    #[must_use]
     pub const fn image_type(&self) -> Option<Type> {
-        match self {
-            Self::Added { image_type, .. } => image_type.value(),
-            Self::Found { .. } => None,
-        }
+        self.image_type.value()
     }
 }
 
@@ -210,6 +196,13 @@ impl Store {
     }
 
     pub fn save<T: AsRef<[u8]> + Copy>(&self, bytes: T) -> Result<Action, Error> {
+        // The image type check will fail with an error if there aren't enough bytes.
+        let image_type = if bytes.as_ref().len() < 8 {
+            None
+        } else {
+            imghdr::from_bytes(bytes.as_ref())
+        };
+
         let digest = md5::compute(bytes);
         let path = self.path(digest);
 
@@ -218,26 +211,20 @@ impl Store {
             std::fs::create_dir_all(parent)?;
         }
 
-        if path.exists() {
-            Ok(Action::Found {
-                entry: Entry { path, digest },
-            })
+        let added = if path.exists() {
+            false
         } else {
-            // The image type check will fail with an error if there aren't enough bytes.
-            let image_type = if bytes.as_ref().len() < 8 {
-                None
-            } else {
-                imghdr::from_bytes(bytes.as_ref())
-            };
-
             let mut file = File::create(&path)?;
             file.write_all(bytes.as_ref())?;
 
-            Ok(Action::Added {
-                entry: Entry { path, digest },
-                image_type: ImageType::new(image_type),
-            })
-        }
+            true
+        };
+
+        Ok(Action {
+            entry: Entry { path, digest },
+            image_type: ImageType::new(image_type),
+            added,
+        })
     }
 
     #[must_use]
@@ -462,10 +449,10 @@ mod tests {
         let empty_action = store.save(&empty_bytes())?;
         let text_action = store.save(&text_bytes())?;
 
-        assert!(minimal_jpg_action.is_added());
-        assert!(minimal_png_action.is_added());
-        assert!(empty_action.is_added());
-        assert!(text_action.is_added());
+        assert!(minimal_jpg_action.added);
+        assert!(minimal_png_action.added);
+        assert!(empty_action.added);
+        assert!(text_action.added);
 
         assert_eq!(minimal_jpg_action.image_type(), Some(imghdr::Type::Jpeg));
         assert_eq!(minimal_png_action.image_type(), Some(imghdr::Type::Png));
@@ -477,10 +464,10 @@ mod tests {
         let repeat_empty_action = store.save(&empty_bytes())?;
         let repeat_text_action = store.save(&text_bytes())?;
 
-        assert!(!repeat_minimal_jpg_action.is_added());
-        assert!(!repeat_minimal_png_action.is_added());
-        assert!(!repeat_empty_action.is_added());
-        assert!(!repeat_text_action.is_added());
+        assert!(!repeat_minimal_jpg_action.added);
+        assert!(!repeat_minimal_png_action.added);
+        assert!(!repeat_empty_action.added);
+        assert!(!repeat_text_action.added);
 
         let inferred_prefix_parts_length = super::Store::infer_prefix_part_lengths(base.path())?;
 
