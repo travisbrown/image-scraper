@@ -53,8 +53,6 @@ pub enum RequestImageError {
     Index(#[from] image_scraper_index::db::Error),
     #[error("Image download previously failed ({1}): {0}")]
     DownloadFailed(String, DateTime<Utc>),
-    #[error("Image already downloaded ({1:x}): {0}")]
-    AlreadyDownloaded(String, md5::Digest),
     #[error("Invalid image type: {0}")]
     InvalidImageType(image_scraper::image_type::ImageType),
     #[error("Unexpected client status code: {0}")]
@@ -71,7 +69,6 @@ impl IntoResponse for RequestImageError {
             error @ (Self::InvalidFormat(_)
             | Self::InvalidUtf8(_)
             | Self::DownloadFailed(_, _)
-            | Self::AlreadyDownloaded(_, _)
             | Self::InvalidImageType(_)) => {
                 log::error!("{error}");
                 (StatusCode::BAD_REQUEST, format!("{error}")).into_response()

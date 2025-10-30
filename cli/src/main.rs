@@ -1,10 +1,11 @@
 use cli_helpers::prelude::*;
 use image_scraper::{
     client::Client,
-    store::{Action, PrefixPartLengths, Store},
+    store::{PrefixPartLengths, Store},
 };
 use image_scraper_index::{Entry, db::Database};
-use std::{collections::BTreeMap, path::PathBuf};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 mod logs;
 
@@ -38,24 +39,12 @@ async fn main() -> Result<(), Error> {
 
                 match client.download(&line).await {
                     Ok(Ok((_, action))) => {
-                        match action {
-                            Action::Added { entry, image_type } => {
-                                writer.write_record([
-                                    "A",
-                                    &format!("{:x?}", entry.digest),
-                                    &image_type.to_string(),
-                                    &line,
-                                ])?;
-                            }
-                            Action::Found { entry } => {
-                                writer.write_record([
-                                    "F",
-                                    &format!("{:x?}", entry.digest),
-                                    "",
-                                    &line,
-                                ])?;
-                            }
-                        }
+                        writer.write_record([
+                            if action.added { "A" } else { "F" },
+                            &format!("{:x?}", action.entry.digest),
+                            &action.image_type.to_string(),
+                            &line,
+                        ])?;
 
                         Ok(())
                     }
@@ -201,6 +190,38 @@ async fn main() -> Result<(), Error> {
                 }
             }
         }
+        Command::ListUnindexed {
+            index,
+            store,
+            prefix,
+        } => {
+            let index = Database::open(&index)?;
+            let digests = index
+                .iter()
+                .filter_map(|result| {
+                    result
+                        .map(|(_, entry)| entry.ok().map(|entry| entry.digest.0))
+                        .map_or_else(|error| Some(Err(Error::from(error))), |value| value.map(Ok))
+                })
+                .collect::<Result<BTreeSet<_>, Error>>()?;
+
+            let inferred_prefix_part_length = Store::infer_prefix_part_lengths(&store)?;
+
+            let prefix_part_lengths = check_prefix_part_lengths(
+                inferred_prefix_part_length,
+                prefix.map(|prefix_part_lengths| prefix_part_lengths.0),
+            )?;
+
+            let store = Store::new(&store).with_prefix_part_lengths(prefix_part_lengths)?;
+
+            for entry in store.entries() {
+                let entry = entry?;
+
+                if !digests.contains(&entry.digest.0) {
+                    println!("{}", entry.path.as_os_str().to_string_lossy());
+                }
+            }
+        }
     }
 
     Ok(())
@@ -269,6 +290,14 @@ enum Command {
     IndexDump {
         #[clap(long)]
         index: PathBuf,
+    },
+    ListUnindexed {
+        #[clap(long)]
+        index: PathBuf,
+        #[clap(long)]
+        store: PathBuf,
+        #[clap(long)]
+        prefix: Option<PrefixPartLengths>,
     },
 }
 

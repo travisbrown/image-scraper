@@ -13,7 +13,7 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::Utc;
 use clap::Parser;
 use image_scraper::image_type::ImageType;
-use image_scraper::store::{Action, PrefixPartLengths, Store};
+use image_scraper::store::{PrefixPartLengths, Store};
 use image_scraper_index::Entry;
 use std::sync::Arc;
 use std::{path::PathBuf, time::Duration};
@@ -146,32 +146,26 @@ async fn request_image(
                 .map_err(error::RequestImageError::from)?
                 .map_err(error::RequestImageError::UnexpectedStatus)?;
 
-            match action {
-                Action::Added { entry, image_type } => {
-                    match image_type.mime_type().zip(image_type.value()) {
-                        Some((mime_type, image_type)) => {
-                            let headers = [(http::header::CONTENT_TYPE, mime_type.essence_str())];
+            match action.image_type.mime_type().zip(action.image_type.value()) {
+                Some((mime_type, image_type)) => {
+                    let headers = [(http::header::CONTENT_TYPE, mime_type.essence_str())];
 
-                            manager
-                                .index
-                                .add(
-                                    url,
-                                    Entry {
-                                        timestamp: Utc::now(),
-                                        digest: entry.digest,
-                                        image_type,
-                                    },
-                                )
-                                .map_err(error::RequestImageError::from)?;
+                    manager
+                        .index
+                        .add(
+                            url,
+                            Entry {
+                                timestamp: Utc::now(),
+                                digest: action.entry.digest,
+                                image_type,
+                            },
+                        )
+                        .map_err(error::RequestImageError::from)?;
 
-                            Ok((headers, bytes).into_response())
-                        }
-                        None => Err(error::RequestImageError::InvalidImageType(image_type)),
-                    }
+                    Ok((headers, bytes).into_response())
                 }
-                Action::Found { entry } => Err(error::RequestImageError::AlreadyDownloaded(
-                    url.to_string(),
-                    entry.digest,
+                None => Err(error::RequestImageError::InvalidImageType(
+                    action.image_type,
                 )),
             }
         }
