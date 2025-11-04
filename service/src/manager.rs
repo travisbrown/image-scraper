@@ -212,7 +212,9 @@ impl Manager {
                     match sender.send(result) {
                         Ok(()) => {}
                         Err(_result) => {
-                            log::error!("Send error (image downloaded: {url})");
+                            log::warn!(
+                                "Image already downloaded (may need to re-index image store): {url})"
+                            );
                         }
                     }
 
