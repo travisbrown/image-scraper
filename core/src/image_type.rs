@@ -122,6 +122,7 @@ impl FromStr for ImageType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "" => Ok(Self(None)),
+            "bgp" => Ok(Self(Some(Type::Bgp))),
             "bmp" => Ok(Self(Some(Type::Bmp))),
             "exr" => Ok(Self(Some(Type::Exr))),
             "flif" => Ok(Self(Some(Type::Flif))),
