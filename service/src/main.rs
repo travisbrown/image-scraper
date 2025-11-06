@@ -132,11 +132,13 @@ async fn request_image(
         .lookup_status(url)
         .map_err(error::RequestImageError::from)?
     {
-        manager::ImageStatus::Downloaded { entry } => Ok(Redirect::permanent(&format!(
-            "/static/{:x}.{}",
-            entry.digest,
-            image_scraper::image_type::ImageType::from(entry.image_type)
-        ))
+        manager::ImageStatus::Downloaded { entry } => Ok(Redirect::permanent(
+            &manager.static_url(
+                entry.digest,
+                entry.image_type.into(),
+                manager::UrlStyle::Absolute,
+            ),
+        )
         .into_response()),
         manager::ImageStatus::Downloading => {
             let (bytes, action) = manager
